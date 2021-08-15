@@ -37,9 +37,11 @@ class TrainDataset(Dataset):
         dataset_root,
         gray_mode=False,
         sequence_length=5,
+        step=3,
         crop_size=96,
     ):
         self._gray_mode = gray_mode
+        self._step = step
         self._crop_size = crop_size
 
         self._crop = torchvision.transforms.RandomCrop(size=self._crop_size)
@@ -67,7 +69,7 @@ class TrainDataset(Dataset):
 
             keyframe_start = keyframe_pad
             keyframe_end = len(noisy_imagenames) - keyframe_pad
-            for keyframe_index in range(keyframe_start, keyframe_end):
+            for keyframe_index in range(keyframe_start, keyframe_end, self._step):
                 # For each timestamp of the video, we pick up a pair of noisy
                 # images sequence and it corresponding clean image.
                 noisy_start = keyframe_index - keyframe_pad
