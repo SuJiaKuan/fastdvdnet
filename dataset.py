@@ -99,20 +99,30 @@ class TrainDataset(Dataset):
             expand_axis0=False,
         )[0])
         # Convert the images into Tensor.
+        # Shape of the images Tensor: (sequence_length + 1, C, H, W)
         images = torch.from_numpy(np.array(images))
 
         # Apply random crop on both noisy images sequence and clean image.
+        # Shape of the patches Tensor:
+        # (sequence_length + 1, C, crop_size, crop_size)
         patches = self._crop(images)
 
-        # Apply a random data augmentation on both noisy images sequence and
-        # clean image.
+        # Apply a random data augmentation on both noisy patches sequence and
+        # clean patch.
         augment_func = random.choices(self._augments, self._augment_weights)[0]
         patches = augment_func(patches)
 
-        # Get cropped noisy patches.
+        # Get noisy patches.
+        # Shape of the noisy patches Tensor:
+        # (sequence_length, C, crop_size, crop_size)
         noisy_patches = patches[:-1]
+        # Convert the shape of noisy pathces.
+        # Shape of the noisy patches Tensor for now:
+        # (sequence_length * C, crop_size, crop_size)
         noisy_patches = noisy_patches.view((-1, *noisy_patches.shape[2:]))
-        # Get cropped clean patches.
+        # Get clean patch.
+        # Shape of the noisy patch Tensor:
+        # (C, crop_size, crop_size)
         clean_patch = patches[-1]
 
         return noisy_patches, clean_patch
