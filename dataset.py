@@ -12,6 +12,7 @@ this program. If not, see <http://www.gnu.org/licenses/>.
 """
 import os
 import glob
+import random
 
 import numpy as np
 import torch
@@ -42,6 +43,7 @@ class TrainDataset(Dataset):
         self._crop_size = crop_size
 
         self._crop = torchvision.transforms.RandomCrop(size=self._crop_size)
+        self._augments, self._augment_weights = self._create_augments()
 
         # Collect directories for noisy videos.
         noisy_dirs = sorted(glob.glob(
@@ -101,6 +103,12 @@ class TrainDataset(Dataset):
 
         # Apply random crop on both noisy images sequence and clean image.
         patches = self._crop(images)
+
+        # Apply a random data augmentation on both noisy images sequence and
+        # clean image.
+        augment_func = random.choices(self._augments, self._augment_weights)[0]
+        patches = augment_func(patches)
+
         # Get cropped noisy patches.
         noisy_patches = patches[:-1]
         noisy_patches = noisy_patches.view((-1, *noisy_patches.shape[2:]))
@@ -111,6 +119,58 @@ class TrainDataset(Dataset):
 
     def __len__(self):
         return len(self._imagenames_pairs)
+
+    def _create_augments(self):
+        do_nothing = lambda x: x
+        do_nothing.__name__ = "do_nothing"
+        rot90 = lambda x: torch.rot90(x, k=1, dims=[2, 3])
+        rot90.__name__ = "rot90"
+        flipud = lambda x: torch.flip(x, dims=[2])
+        flipud.__name__ = "flipup"
+        rot90_flipud = \
+            lambda x: torch.flip(torch.rot90(x, k=1, dims=[2, 3]), dims=[2])
+        rot90_flipud.__name__ = "rot90_flipud"
+        rot180 = lambda x: torch.rot90(x, k=2, dims=[2, 3])
+        rot180.__name__ = "rot180"
+        rot180_flipud = \
+            lambda x: torch.flip(torch.rot90(x, k=2, dims=[2, 3]), dims=[2])
+        rot180_flipud.__name__ = "rot180_flipud"
+        rot270 = lambda x: torch.rot90(x, k=3, dims=[2, 3])
+        rot270.__name__ = "rot270"
+        rot270_flipud = \
+            lambda x: torch.flip(torch.rot90(x, k=3, dims=[2, 3]), dims=[2])
+        rot270_flipud.__name__ = "rot270_flipud"
+        add_csnt = lambda x: x + torch.normal(
+            mean=torch.zeros(x.size()[0], 1, 1, 1),
+            std=(5/255.),
+        ).expand_as(x).to(x.device)
+        add_csnt.__name__ = "add_csnt"
+
+        # Define augmentations and their ferquency to be chosen.
+        augments = [
+            do_nothing,
+            flipud,
+            rot90,
+            rot90_flipud,
+            rot180,
+            rot180_flipud,
+            rot270,
+            rot270_flipud,
+            add_csnt,
+        ]
+        augment_weights = [
+            32,
+            12,
+            12,
+            12,
+            12,
+            12,
+            12,
+            12,
+            12,
+        ]
+
+        return augments, augment_weights
 
 
 class ValDataset(Dataset):
