@@ -213,19 +213,6 @@ if __name__ == "__main__":
         default=5,
         help="Number of training epochs to save state",
     )
-    parser.add_argument(
-        "--noise_ival",
-        nargs=2,
-        type=int,
-        default=[5, 55],
-        help="Noise training interval",
-    )
-    parser.add_argument(
-        "--val_noiseL",
-        type=float,
-        default=25,
-        help='noise level used on validation set',
-    )
     # Preprocessing parameters
     parser.add_argument(
         "--patch_size",
@@ -268,11 +255,6 @@ if __name__ == "__main__":
         help='path of validation set',
     )
     argspar = parser.parse_args()
-
-    # Normalize noise between [0, 1]
-    argspar.val_noiseL /= 255.
-    argspar.noise_ival[0] /= 255.
-    argspar.noise_ival[1] /= 255.
 
     print("\n### Training FastDVDnet denoiser model ###")
     print("> Parameters:")
