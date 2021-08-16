@@ -23,11 +23,10 @@ from utils import close_logger
 
 
 NUM_IN_FR_EXT = 5  # temporal size of patch
-MC_ALGO = 'DeepFlow'  # motion estimation algorithm
 OUTIMGEXT = '.png'  # output images format
 
 
-def save_out_seq(seqnoisy, seqclean, save_dir, sigmaval, suffix, save_noisy):
+def save_out_seq(seqnoisy, seqclean, save_dir, suffix, save_noisy):
     """Saves the denoised and noisy sequences under save_dir
     """
     seq_len = seqnoisy.size()[0]
@@ -36,17 +35,17 @@ def save_out_seq(seqnoisy, seqclean, save_dir, sigmaval, suffix, save_noisy):
         fext = OUTIMGEXT
         noisy_name = os.path.join(
             save_dir,
-            ('n{}_{}').format(sigmaval, idx) + fext,
+            ('{}{}').format(idx, fext),
         )
         if len(suffix) == 0:
             out_name = os.path.join(
                 save_dir,
-                ('n{}_FastDVDnet_{}').format(sigmaval, idx) + fext,
+                ('FastDVDnet_{}{}').format(idx, fext),
             )
         else:
             out_name = os.path.join(
                 save_dir,
-                ('n{}_FastDVDnet_{}_{}').format(sigmaval, suffix, idx) + fext,
+                ('FastDVDnet_{}_{}{}').format(suffix, idx, fext),
             )
 
         # Save result
@@ -60,16 +59,15 @@ def save_out_seq(seqnoisy, seqclean, save_dir, sigmaval, suffix, save_noisy):
 
 def test_fastdvdnet(**args):
     """Denoises all sequences present in a given folder. Sequences must be
-    stored as numbered image sequences. The different sequences must be stored
-    in subfolders under the "test_path" folder.
+    stored as numbered image sequences.
 
     Inputs:
         args (dict) fields:
             "model_file": path to model
-            "test_path": path to sequence to denoise
+            "noisy_path": path to noisy sequence to denoise
+            "clean_path": path to corresponding clean sequence
             "suffix": suffix to add to output name
             "max_num_fr_per_seq": max number of frames to load per sequence
-            "noise_sigma": noise level used on test set
             "dont_save_results: if True, don't save output images
             "no_gpu": if True, run model on CPU
             "save_path": where to save outputs as png
@@ -109,38 +107,40 @@ def test_fastdvdnet(**args):
 
     with torch.no_grad():
         # process data
-        seq, _, _ = open_sequence(
-            args['test_path'],
+        noisy_seq, _, _ = open_sequence(
+            args['noisy_path'],
             args['gray'],
             expand_if_needed=False,
             max_num_fr=args['max_num_fr_per_seq'],
         )
-        seq = torch.from_numpy(seq).to(device)
+        clean_seq, _, _ = open_sequence(
+            args['clean_path'],
+            args['gray'],
+            expand_if_needed=False,
+            max_num_fr=args['max_num_fr_per_seq'],
+        )
+        noisy_seq = torch.from_numpy(noisy_seq).to(device)
+        clean_seq = torch.from_numpy(clean_seq).to(device)
         seq_time = time.time()
 
-        # Add noise
-        noise = \
-            torch.empty_like(seq) \
-            .normal_(mean=0, std=args['noise_sigma']) \
-            .to(device)
-        seqn = seq + noise
-        noisestd = torch.FloatTensor([args['noise_sigma']]).to(device)
-
         denframes = denoise_seq_fastdvdnet(
-            seq=seqn,
-            noise_std=noisestd,
-            temp_psz=NUM_IN_FR_EXT,
-            model_temporal=model_temp,
+            noisy_seq,
+            NUM_IN_FR_EXT,
+            model_temp,
         )
+        print(denframes.size())
+        print(denframes.size())
 
     # Compute PSNR and log it
     stop_time = time.time()
-    psnr = batch_psnr(denframes, seq, 1.)
-    psnr_noisy = batch_psnr(seqn.squeeze(), seq, 1.)
+    psnr = batch_psnr(denframes, clean_seq, 1.)
+    psnr_noisy = batch_psnr(noisy_seq, clean_seq, 1.)
     loadtime = (seq_time - start_time)
     runtime = (stop_time - seq_time)
-    seq_length = seq.size()[0]
-    logger.info("Finished denoising {}".format(args['test_path']))
+    seq_length = noisy_seq.size()[0]
+    logger.info("Finished denoising")
+    logger.info("Noisy path: {}".format(args['noisy_path']))
+    logger.info("Clean path: {}".format(args['clean_path']))
     logger.info("\tDenoised {} frames in {:.3f}s, loaded seq in {:.3f}s".
                 format(seq_length, runtime, loadtime))
     logger.info("\tPSNR noisy {:.4f}dB, PSNR result {:.4f}dB".format(
@@ -152,10 +152,9 @@ def test_fastdvdnet(**args):
     if not args['dont_save_results']:
         # Save sequence
         save_out_seq(
-            seqn,
+            noisy_seq,
             denframes,
             args['save_path'],
-            int(args['noise_sigma'] * 255),
             args['suffix'],
             args['save_noisy'],
         )
@@ -176,10 +175,16 @@ if __name__ == "__main__":
         help='path to model of the pretrained denoiser',
     )
     parser.add_argument(
-        "--test_path",
+        "--noisy_path",
         type=str,
         default="./data/rgb/Kodak24",
-        help='path to sequence to denoise',
+        help='path to noisy sequence to denoise',
+    )
+    parser.add_argument(
+        "--clean_path",
+        type=str,
+        default="./data/rgb/Kodak24",
+        help='path to corresponding clean sequence',
     )
     parser.add_argument(
         "--suffix",
@@ -192,12 +197,6 @@ if __name__ == "__main__":
         type=int,
         default=25,
         help='max number of frames to load per sequence',
-    )
-    parser.add_argument(
-        "--noise_sigma",
-        type=float,
-        default=25,
-        help='noise level used on test set',
     )
     parser.add_argument(
         "--dont_save_results",
@@ -227,8 +226,6 @@ if __name__ == "__main__":
     )
 
     argspar = parser.parse_args()
-    # Normalize noises ot [0, 1]
-    argspar.noise_sigma /= 255.
 
     # use CUDA?
     argspar.cuda = not argspar.no_gpu and torch.cuda.is_available()
