@@ -130,7 +130,6 @@ def save_model_checkpoint(model, argdict, optimizer, train_pars, epoch):
 def validate_and_log(
     model_temp,
     dataset_val,
-    valnoisestd,
     temp_psz,
     writer,
     epoch,
@@ -143,21 +142,12 @@ def validate_and_log(
     t1 = time.time()
     psnr_val = 0
     with torch.no_grad():
-        for seq_val in dataset_val:
-            noise = torch.FloatTensor(seq_val.size()).normal_(
-                mean=0,
-                std=valnoisestd,
-            )
-            seqn_val = seq_val + noise
-            seqn_val = seqn_val.cuda()
-            sigma_noise = torch.cuda.FloatTensor([valnoisestd])
-            out_val = denoise_seq_fastdvdnet(
-                seq=seqn_val,
-                noise_std=sigma_noise,
-                temp_psz=temp_psz,
-                model_temporal=model_temp,
-            )
-            psnr_val += batch_psnr(out_val.cpu(), seq_val.squeeze_(), 1.)
+        # for seq_val in dataset_val:
+        for noisy_seq, clean_seq in dataset_val:
+            noisy_seq = noisy_seq.cuda()
+            clean_seq = clean_seq.cuda()
+            out_val = denoise_seq_fastdvdnet(noisy_seq, temp_psz, model_temp)
+            psnr_val += batch_psnr(out_val.cpu(), clean_seq.squeeze_(), 1.)
         psnr_val /= len(dataset_val)
         t2 = time.time()
         print("\n[epoch %d] PSNR_val: %.4f, on %.2f sec" % (
@@ -184,26 +174,26 @@ def validate_and_log(
             writer.add_image('Training patches', img, epoch)
 
             # Log validation images
-            img = tutils.make_grid(
-                seq_val.data[idx].clamp(0., 1.),
+            clean_img = tutils.make_grid(
+                clean_seq.data[idx].clamp(0., 1.),
                 nrow=2,
                 normalize=False,
                 scale_each=False,
             )
-            imgn = tutils.make_grid(
-                seqn_val.data[idx].clamp(0., 1.),
+            noisy_img = tutils.make_grid(
+                noisy_seq.data[idx].clamp(0., 1.),
                 nrow=2,
                 normalize=False,
                 scale_each=False,
             )
             writer.add_image(
                 'Clean validation image {}'.format(idx),
-                img,
+                clean_img,
                 epoch,
             )
             writer.add_image(
                 'Noisy validation image {}'.format(idx),
-                imgn,
+                noisy_img,
                 epoch,
             )
 

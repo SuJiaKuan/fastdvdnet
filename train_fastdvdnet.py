@@ -34,7 +34,7 @@ def main(**args):
 
     # Load dataset
     print('> Loading datasets ...')
-    dataset_val = ValDataset(valsetdir=args['valset_dir'], gray_mode=False)
+    dataset_val = ValDataset(args['valset_dir'], gray_mode=False)
     dataset_train = TrainDataset(
         args['trainset_dir'],
         sequence_length=args['temp_patch_size'],
@@ -137,7 +137,6 @@ def main(**args):
         validate_and_log(
             model_temp=model,
             dataset_val=dataset_val,
-            valnoisestd=args['val_noiseL'],
             temp_psz=args['temp_patch_size'],
             writer=writer,
             epoch=epoch,
