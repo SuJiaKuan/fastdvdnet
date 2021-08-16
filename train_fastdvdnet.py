@@ -16,12 +16,11 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from models import FastDVDnet
+from dataset import TrainDataset
 from dataset import ValDataset
-from dataloaders import train_dali_loader
 from utils import svd_orthogonalization
 from utils import close_logger
 from utils import init_logging
-from utils import normalize_augment
 from train_common import resume_training
 from train_common import lr_scheduler
 from train_common import log_train_psnr
@@ -36,19 +35,22 @@ def main(**args):
     # Load dataset
     print('> Loading datasets ...')
     dataset_val = ValDataset(valsetdir=args['valset_dir'], gray_mode=False)
-    loader_train = train_dali_loader(
-        batch_size=args['batch_size'],
-        file_root=args['trainset_dir'],
+    dataset_train = TrainDataset(
+        args['trainset_dir'],
         sequence_length=args['temp_patch_size'],
+        step=3,
         crop_size=args['patch_size'],
-        epoch_size=args['max_number_patches'],
-        random_shuffle=True,
-        temp_stride=3,
+    )
+    loader_train = torch.utils.data.DataLoader(
+        dataset_train,
+        batch_size=args['batch_size'],
+        shuffle=True,
+        pin_memory=True,
+        num_workers=args['num_workers'],
     )
 
-    num_minibatches = int(args['max_number_patches']//args['batch_size'])
-    ctrl_fr_idx = (args['temp_patch_size'] - 1) // 2
-    print("\t# of training samples: %d\n" % int(args['max_number_patches']))
+    num_minibatches = int(len(dataset_train) // args['batch_size'])
+    print("\t# of training samples: %d\n" % len(dataset_train))
 
     # Init loggers
     writer, logger = init_logging(args)
@@ -85,8 +87,7 @@ def main(**args):
         print('\nlearning rate %f' % current_lr)
 
         # train
-
-        for i, data in enumerate(loader_train, 0):
+        for i, (img_train, gt_train) in enumerate(loader_train, 0):
 
             # Pre-training step
             model.train()
@@ -95,17 +96,10 @@ def main(**args):
             # the optim's grads
             optimizer.zero_grad()
 
-            # convert inp to [N, num_frames*C. H, W] in  [0., 1.] from
-            # [N, num_frames, C. H, W] in [0., 255.]
-            # extract ground truth (central frame)
-            img_train, gt_train = normalize_augment(
-                data[0]['data'],
-                ctrl_fr_idx,
-            )
             N, _, H, W = img_train.size()
 
             # std dev of each sequence
-            stdn = torch.empty((N, 1, 1, 1)).cuda().uniform_(
+            stdn = torch.empty((N, 1, 1, 1)).uniform_(
                 args['noise_ival'][0],
                 to=args['noise_ival'][1],
             )
@@ -113,18 +107,15 @@ def main(**args):
             noise = torch.zeros_like(img_train)
             noise = torch.normal(mean=noise, std=stdn.expand_as(noise))
 
-            # define noisy input
-            imgn_train = img_train + noise
-
             # Send tensors to GPU
             gt_train = gt_train.cuda(non_blocking=True)
-            imgn_train = imgn_train.cuda(non_blocking=True)
+            img_train = img_train.cuda(non_blocking=True)
             noise = noise.cuda(non_blocking=True)
             # one channel per image
             noise_map = stdn.expand((N, 1, H, W)).cuda(non_blocking=True)
 
             # Evaluate model and optimize it
-            out_train = model(imgn_train, noise_map)
+            out_train = model(img_train, noise_map)
 
             # Compute loss
             loss = criterion(gt_train, out_train) / (N*2)
@@ -264,11 +255,11 @@ if __name__ == "__main__":
         help="Temporal patch size",
     )
     parser.add_argument(
-        "--max_number_patches",
-        "--m",
+        "--num_workers",
+        "--nw",
         type=int,
-        default=256000,
-        help="Maximum number of patches",
+        default=2,
+        help="Number of workers for training data loader",
     )
     # Dirs
     parser.add_argument(
