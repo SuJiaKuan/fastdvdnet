@@ -26,8 +26,6 @@ from utils import open_sequence
 
 # number of frames of each sequence to include in validation dataset
 NUMFRXSEQ_VAL = 15
-# pattern for name of validation sequence
-VALSEQPATT = "*"
 
 
 class TrainDataset(Dataset):
