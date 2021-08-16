@@ -190,31 +190,50 @@ class ValDataset(Dataset):
     """
     def __init__(
         self,
-        valsetdir=None,
+        dataset_root,
         gray_mode=False,
         num_input_frames=NUMFRXSEQ_VAL,
     ):
         self.gray_mode = gray_mode
 
-        # Look for subdirs with individual sequences
-        seqs_dirs = sorted(glob.glob(os.path.join(valsetdir, VALSEQPATT)))
+        # Collect directories for noisy videos.
+        noisy_dirs = sorted(glob.glob(
+            os.path.join(dataset_root, "before", "*"),
+        ))
+        # Collect directories for the corresponding clean videos.
+        clean_dirs = sorted(glob.glob(
+            os.path.join(dataset_root, "after", "*"),
+        ))
 
-        # open individual sequences and append them to the sequence list
+        # Open individual sequences for both noisy and clean data and append
+        # them to the sequence list.
         sequences = []
-        for seq_dir in seqs_dirs:
-            seq, _, _ = open_sequence(
-                seq_dir,
+        for noisy_dir, clean_dir in zip(noisy_dirs, clean_dirs):
+            # Get a sequence of noisy images.
+            # The shape is [num_frames, C, H, W]
+            noisy_seq, _, _ = open_sequence(
+                noisy_dir,
                 gray_mode,
                 expand_if_needed=False,
                 max_num_fr=num_input_frames,
             )
-            # seq is [num_frames, C, H, W]
-            sequences.append(seq)
+            # Get a sequence of clean images.
+            # The shape is [num_frames, C, H, W]
+            clean_seq, _, _ = open_sequence(
+                clean_dir,
+                gray_mode,
+                expand_if_needed=False,
+                max_num_fr=num_input_frames,
+            )
 
-        self.sequences = sequences
+            sequences.append((noisy_seq, clean_seq))
+
+        self._sequences = sequences
 
     def __getitem__(self, index):
-        return torch.from_numpy(self.sequences[index])
+        noisy_seq, clean_seq = self._sequences[index]
+
+        return torch.from_numpy(noisy_seq), torch.from_numpy(clean_seq)
 
     def __len__(self):
-        return len(self.sequences)
+        return len(self._sequences)
