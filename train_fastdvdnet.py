@@ -98,27 +98,15 @@ def main(**args):
 
             N, _, H, W = img_train.size()
 
-            # std dev of each sequence
-            stdn = torch.empty((N, 1, 1, 1)).uniform_(
-                args['noise_ival'][0],
-                to=args['noise_ival'][1],
-            )
-            # draw noise samples from std dev tensor
-            noise = torch.zeros_like(img_train)
-            noise = torch.normal(mean=noise, std=stdn.expand_as(noise))
-
             # Send tensors to GPU
             gt_train = gt_train.cuda(non_blocking=True)
             img_train = img_train.cuda(non_blocking=True)
-            noise = noise.cuda(non_blocking=True)
-            # one channel per image
-            noise_map = stdn.expand((N, 1, H, W)).cuda(non_blocking=True)
 
             # Evaluate model and optimize it
-            out_train = model(img_train, noise_map)
+            out_train = model(img_train)
 
             # Compute loss
-            loss = criterion(gt_train, out_train) / (N*2)
+            loss = criterion(gt_train, out_train) / (N * 2)
             loss.backward()
             optimizer.step()
 
