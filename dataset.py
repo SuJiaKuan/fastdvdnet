@@ -68,16 +68,16 @@ class TrainDataset(Dataset):
         sequence_pairs = []
         keyframe_pad = sequence_length // 2
         for noisy_video, clean_video in zip(noisy_videos, clean_videos):
-            '''
             # Collct timestamps for noisy video.
-            noisy_timestamps = \
-                torchvision.io.read_video_timestamps(noisy_video)[0]
+            noisy_timestamps = torchvision.io.read_video_timestamps(
+                noisy_video,
+                pts_unit="sec",
+            )[0]
             # Collct timestamps for clean video.
-            clean_timestamps = \
-                torchvision.io.read_video_timestamps(clean_video)[0]
-            '''
-            noisy_timestamps = list(range(266))
-            clean_timestamps = list(range(266))
+            clean_timestamps = torchvision.io.read_video_timestamps(
+                clean_video,
+                pts_unit="sec",
+            )[0]
 
             assert len(noisy_timestamps) == len(clean_timestamps), \
                 "Number of frames are not equal for noisy and clean videos pair"
@@ -109,6 +109,7 @@ class TrainDataset(Dataset):
             sequence_pair.noisy_video,
             start_pts=sequence_pair.noisy_frames[0],
             end_pts=sequence_pair.noisy_frames[-1],
+            pts_unit="sec",
         )[0]
         # Load clean image.
         # Shape of the clean image Tensor: (1, H, W, C)
@@ -116,6 +117,7 @@ class TrainDataset(Dataset):
             sequence_pair.clean_video,
             start_pts=sequence_pair.clean_frame,
             end_pts=sequence_pair.clean_frame,
+            pts_unit="sec",
         )[0]
         # Concatenate noisy images and clean image to make following processing
         # flow easier.
