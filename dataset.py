@@ -69,11 +69,13 @@ class TrainDataset(Dataset):
         keyframe_pad = sequence_length // 2
         for noisy_video, clean_video in zip(noisy_videos, clean_videos):
             # Collct timestamps for noisy video.
+            print("Load timestamps: {}".format(noisy_video))
             noisy_timestamps = torchvision.io.read_video_timestamps(
                 noisy_video,
                 pts_unit="sec",
             )[0]
             # Collct timestamps for clean video.
+            print("Load timestamps: {}".format(clean_video))
             clean_timestamps = torchvision.io.read_video_timestamps(
                 clean_video,
                 pts_unit="sec",
