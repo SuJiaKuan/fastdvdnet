@@ -25,6 +25,11 @@ from utils import open_sequence
 
 # number of frames of each sequence to include in validation dataset
 NUMFRXSEQ_VAL = 15
+# Supported video extension names.
+VIDEO_EXTENSIONS = (
+    "mp4",
+    "mov",
+)
 
 
 SequencePair = collections.namedtuple("SequencePair", field_names=[
@@ -44,7 +49,7 @@ class TrainDataset(Dataset):
         sequence_length=5,
         step=3,
         crop_size=96,
-        extensions=("mp4", "mov"),
+        extensions=VIDEO_EXTENSIONS,
     ):
         self._gray_mode = gray_mode
         self._step = step
@@ -224,47 +229,78 @@ class ValDataset(Dataset):
         dataset_root,
         gray_mode=False,
         num_input_frames=NUMFRXSEQ_VAL,
+        extensions=VIDEO_EXTENSIONS,
     ):
         self.gray_mode = gray_mode
+        self._num_input_frames = num_input_frames
+        self._extensions = extensions
 
-        # Collect directories for noisy videos.
-        noisy_dirs = sorted(glob.glob(
-            os.path.join(dataset_root, "before", "*"),
-        ))
-        # Collect directories for the corresponding clean videos.
-        clean_dirs = sorted(glob.glob(
-            os.path.join(dataset_root, "after", "*"),
-        ))
+        # Collect noisy videos.
+        noisy_videos = get_videonames(
+            os.path.join(dataset_root, "before"),
+            self._extensions,
+        )
+        # Collect noisy videos.
+        clean_videos = get_videonames(
+            os.path.join(dataset_root, "after"),
+            self._extensions,
+        )
 
-        # Open individual sequences for both noisy and clean data and append
-        # them to the sequence list.
         sequences = []
-        for noisy_dir, clean_dir in zip(noisy_dirs, clean_dirs):
-            # Get a sequence of noisy images.
-            # The shape is [num_frames, C, H, W]
-            noisy_seq, _, _ = open_sequence(
-                noisy_dir,
-                gray_mode,
-                expand_if_needed=False,
-                max_num_fr=num_input_frames,
-            )
-            # Get a sequence of clean images.
-            # The shape is [num_frames, C, H, W]
-            clean_seq, _, _ = open_sequence(
-                clean_dir,
-                gray_mode,
-                expand_if_needed=False,
-                max_num_fr=num_input_frames,
-            )
+        for noisy_video, clean_video in zip(noisy_videos, clean_videos):
+            # Collct timestamps for noisy video.
+            print("Load timestamps: {}".format(noisy_video))
+            noisy_timestamps = torchvision.io.read_video_timestamps(
+                noisy_video,
+                pts_unit="sec",
+            )[0]
+            # Collct timestamps for clean video.
+            print("Load timestamps: {}".format(clean_video))
+            clean_timestamps = torchvision.io.read_video_timestamps(
+                clean_video,
+                pts_unit="sec",
+            )[0]
+
+            assert len(noisy_timestamps) == len(clean_timestamps), \
+                "Number of frames are not equal for noisy and clean videos pair"
+
+            num_frames = min(len(noisy_timestamps), self._num_input_frames)
+
+            # Load noisy images sequence.
+            # Shape of the noisy images Tensor: (num_frames, H, W, C)
+            noisy_seq = torchvision.io.read_video(
+                noisy_video,
+                start_pts=noisy_timestamps[0],
+                end_pts=noisy_timestamps[num_frames - 1],
+                pts_unit="sec",
+            )[0]
+            # Load clean images sequence.
+            # Shape of the clean images Tensor: (num_frames, H, W, C)
+            clean_seq = torchvision.io.read_video(
+                clean_video,
+                start_pts=clean_timestamps[0],
+                end_pts=clean_timestamps[num_frames - 1],
+                pts_unit="sec",
+            )[0]
+
+            # Convert the noisy images format from NHWC to HCHW.
+            # Shape of current noisy images Tensor: (num_frames, C, H, W)
+            noisy_seq = noisy_seq.permute(0, 3, 1, 2)
+            # Normalize the image values range from (0, 255) to (0.0, 1.0)
+            noisy_seq = noisy_seq / 255.0
+
+            # Convert the clean images format from NHWC to HCHW.
+            # Shape of current clean images Tensor: (num_frames, C, H, W)
+            clean_seq = clean_seq.permute(0, 3, 1, 2)
+            # Normalize the image values range from (0, 255) to (0.0, 1.0)
+            clean_seq = clean_seq / 255.0
 
             sequences.append((noisy_seq, clean_seq))
 
         self._sequences = sequences
 
     def __getitem__(self, index):
-        noisy_seq, clean_seq = self._sequences[index]
-
-        return torch.from_numpy(noisy_seq), torch.from_numpy(clean_seq)
+        return self._sequences[index]
 
     def __len__(self):
         return len(self._sequences)
