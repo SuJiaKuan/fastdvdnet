@@ -10,22 +10,29 @@ version 3 of the License, or (at your option) any later
 version. You should have received a copy of this license along
 this program. If not, see <http://www.gnu.org/licenses/>.
 """
+import collections
 import os
 import glob
 import random
 
-import numpy as np
 import torch
 import torchvision
 from torch.utils.data.dataset import Dataset
 
-from utils import get_imagenames
-from utils import open_image
+from utils import get_videonames
 from utils import open_sequence
 
 
 # number of frames of each sequence to include in validation dataset
 NUMFRXSEQ_VAL = 15
+
+
+SequencePair = collections.namedtuple("SequencePair", field_names=[
+    "noisy_video",
+    "noisy_frames",
+    "clean_video",
+    "clean_frame",
+])
 
 
 class TrainDataset(Dataset):
@@ -37,70 +44,90 @@ class TrainDataset(Dataset):
         sequence_length=5,
         step=3,
         crop_size=96,
+        extensions=("mp4", "mov"),
     ):
         self._gray_mode = gray_mode
         self._step = step
         self._crop_size = crop_size
+        self._extensions = extensions
 
         self._crop = torchvision.transforms.RandomCrop(size=self._crop_size)
         self._augments, self._augment_weights = self._create_augments()
 
-        # Collect directories for noisy videos.
-        noisy_dirs = sorted(glob.glob(
-            os.path.join(dataset_root, "before", "*"),
-        ))
-        # Collect directories for the corresponding clean videos.
-        clean_dirs = sorted(glob.glob(
-            os.path.join(dataset_root, "after", "*"),
-        ))
+        # Collect noisy videos.
+        noisy_videos = get_videonames(
+            os.path.join(dataset_root, "before"),
+            self._extensions,
+        )
+        # Collect noisy videos.
+        clean_videos = get_videonames(
+            os.path.join(dataset_root, "after"),
+            self._extensions,
+        )
 
-        imagenames_pairs = []
+        sequence_pairs = []
         keyframe_pad = sequence_length // 2
-        for noisy_dir, clean_dir in zip(noisy_dirs, clean_dirs):
-            # Collect noisy image filenames for a given video.
-            noisy_imagenames = get_imagenames(noisy_dir)
-            # Collect corresponding clean image filenames for a given video.
-            clean_imagenames = get_imagenames(clean_dir)
+        for noisy_video, clean_video in zip(noisy_videos, clean_videos):
+            '''
+            # Collct timestamps for noisy video.
+            noisy_timestamps = \
+                torchvision.io.read_video_timestamps(noisy_video)[0]
+            # Collct timestamps for clean video.
+            clean_timestamps = \
+                torchvision.io.read_video_timestamps(clean_video)[0]
+            '''
+            noisy_timestamps = list(range(266))
+            clean_timestamps = list(range(266))
 
-            assert len(noisy_imagenames) == len(clean_imagenames), \
-                "Number of images are not equal for noisy and clean pair"
+            assert len(noisy_timestamps) == len(clean_timestamps), \
+                "Number of frames are not equal for noisy and clean videos pair"
 
             keyframe_start = keyframe_pad
-            keyframe_end = len(noisy_imagenames) - keyframe_pad
+            keyframe_end = len(noisy_timestamps) - keyframe_pad
             for keyframe_index in range(keyframe_start, keyframe_end, self._step):
                 # For each timestamp of the video, we pick up a pair of noisy
                 # images sequence and it corresponding clean image.
                 noisy_start = keyframe_index - keyframe_pad
                 noisy_end = keyframe_index + keyframe_pad + 1
-                noisy_frames = noisy_imagenames[noisy_start:noisy_end]
-                clean_frame = clean_imagenames[keyframe_index]
-                imagenames_pairs.append((noisy_frames, clean_frame))
+                noisy_frames = noisy_timestamps[noisy_start:noisy_end]
+                clean_frame = clean_timestamps[keyframe_index]
+                sequence_pairs.append(SequencePair(
+                    noisy_video,
+                    noisy_frames,
+                    clean_video,
+                    clean_frame,
+                ))
 
-        self._imagenames_pairs = imagenames_pairs
+        self._sequence_pairs = sequence_pairs
 
     def __getitem__(self, index):
-        imagenames_pair = self._imagenames_pairs[index]
+        sequence_pair = self._sequence_pairs[index]
 
         # Load noisy images sequence.
-        images = [
-            open_image(
-                imagename,
-                gray_mode=self._gray_mode,
-                expand_if_needed=False,
-                expand_axis0=False,
-            )[0]
-            for imagename in imagenames_pair[0]
-        ]
-        # Load corresponding clean image.
-        images.append(open_image(
-            imagenames_pair[1],
-            gray_mode=self._gray_mode,
-            expand_if_needed=False,
-            expand_axis0=False,
-        )[0])
-        # Convert the images into Tensor.
-        # Shape of the images Tensor: (sequence_length + 1, C, H, W)
-        images = torch.from_numpy(np.array(images))
+        # Shape of the noisy images Tensor: (sequence_length, H, W, C)
+        noisy_images = torchvision.io.read_video(
+            sequence_pair.noisy_video,
+            start_pts=sequence_pair.noisy_frames[0],
+            end_pts=sequence_pair.noisy_frames[-1],
+        )[0]
+        # Load clean image.
+        # Shape of the clean image Tensor: (1, H, W, C)
+        clean_image = torchvision.io.read_video(
+            sequence_pair.clean_video,
+            start_pts=sequence_pair.clean_frame,
+            end_pts=sequence_pair.clean_frame,
+        )[0]
+        # Concatenate noisy images and clean image to make following processing
+        # flow easier.
+        # Shape of the images Tensor: (sequence_length + 1, H, W, C)
+        images = torch.cat([noisy_images, clean_image], axis=0)
+
+        # Convert the images format from NHWC to HCHW.
+        # Shape of current images Tensor: (sequence_length + 1, C, H, W)
+        images = images.permute(0, 3, 1, 2)
+
+        # Normalize the image values range from (0, 255) to (0.0, 1.0)
+        images = images / 255.0
 
         # Apply random crop on both noisy images sequence and clean image.
         # Shape of the patches Tensor:
@@ -119,7 +146,9 @@ class TrainDataset(Dataset):
         # Convert the shape of noisy pathces.
         # Shape of the noisy patches Tensor for now:
         # (sequence_length * C, crop_size, crop_size)
-        noisy_patches = noisy_patches.view((-1, *noisy_patches.shape[2:]))
+        noisy_patches = noisy_patches.contiguous().view(
+            (-1, *noisy_patches.shape[2:]),
+        )
         # Get clean patch.
         # Shape of the noisy patch Tensor:
         # (C, crop_size, crop_size)
@@ -128,7 +157,7 @@ class TrainDataset(Dataset):
         return noisy_patches, clean_patch
 
     def __len__(self):
-        return len(self._imagenames_pairs)
+        return len(self._sequence_pairs)
 
     def _create_augments(self):
         do_nothing = lambda x: x

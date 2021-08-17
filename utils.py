@@ -99,6 +99,17 @@ def get_imagenames(seq_dir, pattern=None):
 	files.sort(key=lambda f: int(''.join(filter(str.isdigit, f))))
 	return files
 
+
+def get_videonames(videos_dir, extensions):
+    videonames = []
+    for extension in extensions:
+        videonames.extend(glob.glob(
+            os.path.join(videos_dir, "*.{}".format(extension)),
+        ))
+
+    return sorted(videonames)
+
+
 def open_sequence(seq_dir, gray_mode, expand_if_needed=False, max_num_fr=100):
 	r""" Opens a sequence of images and expands it to even sizes if necesary
 	Args:
