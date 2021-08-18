@@ -7,7 +7,7 @@ dependencies:
   - cudatoolkit=10.2
   - future=0.18.2
   - opencv=3.4.2
-  - mkl=2020.4
+  - mkl=2019.4
   - pip=20.0.2
   - pycodestyle=2.5.0
   - pytest=5.4.1
