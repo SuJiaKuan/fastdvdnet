@@ -120,7 +120,8 @@ def test_fastdvdnet(**args):
             max_num_fr=args['max_num_fr_per_seq'],
         )
         noisy_seq = torch.from_numpy(noisy_seq).to(device)
-        clean_seq = torch.from_numpy(clean_seq).to(device)
+        # Clean sequence won't be fed into model, so keep it on same device.
+        clean_seq = torch.from_numpy(clean_seq)
         seq_time = time.time()
 
         denframes = denoise_seq_fastdvdnet(
